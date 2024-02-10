@@ -19,6 +19,7 @@
 #include "doomkeys.h"
 
 #include <math.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,6 +28,7 @@
 #include <portaudio.h>
 
 #define unlikely(x) __builtin_expect((x), 0)
+
 #define error(...)                            \
 	do {                                  \
 		fprintf(stderr, __VA_ARGS__); \
@@ -47,13 +49,19 @@
 		error_check(err == paNoError, "Error: Portaudio: %s\n", Pa_GetErrorText(err)); \
 	} while (0)
 
-#define SAMPLE_RATE 44100
+#define bin_idx_from_freq(frequency) ((frequency) * INPUT_FRAMES_PER_BUFFER * 2 / INPUT_SAMPLE_RATE)
+
+#define OUTPUT_SAMPLE_RATE 44100
+#define INPUT_SAMPLE_RATE 44100
+#define INPUT_FRAMES_PER_BUFFER 128
 #define FRAMETIME_MS 1001
 #define PI 3.14159265
+#define INPUT_MAGNITUDE_THRESH 1.0
 
-struct timespec ts_init;
-struct timespec ts_prev_frame;
-PaStream *stream;
+struct key {
+	uint8_t doomkey;
+	bool pressed;
+};
 
 struct color_t {
 	uint32_t b : 8;
@@ -61,6 +69,45 @@ struct color_t {
 	uint32_t r : 8;
 	uint32_t a : 8;
 };
+
+struct keymap {
+	size_t bin_idx;
+	struct key key;
+} keys[] = {
+	{ .bin_idx = bin_idx_from_freq(2000), .key = { .doomkey = KEY_RIGHTARROW } },
+	{ .bin_idx = bin_idx_from_freq(3000), .key = { .doomkey = KEY_LEFTARROW } },
+	{ .bin_idx = bin_idx_from_freq(4000), .key = { .doomkey = KEY_UPARROW } },
+	{ .bin_idx = bin_idx_from_freq(5000), .key = { .doomkey = KEY_DOWNARROW } },
+	{ .bin_idx = bin_idx_from_freq(6000), .key = { .doomkey = KEY_USE } },
+	{ .bin_idx = bin_idx_from_freq(7000), .key = { .doomkey = KEY_FIRE } },
+	{ .bin_idx = bin_idx_from_freq(8000), .key = { .doomkey = KEY_ESCAPE } },
+	{ .bin_idx = bin_idx_from_freq(9000), .key = { .doomkey = KEY_ENTER } },
+	{ .bin_idx = bin_idx_from_freq(10000), .key = { .doomkey = KEY_TAB } },
+	{ .bin_idx = bin_idx_from_freq(11000), .key = { .doomkey = '1' } },
+	{ .bin_idx = bin_idx_from_freq(12000), .key = { .doomkey = '2' } },
+	{ .bin_idx = bin_idx_from_freq(13000), .key = { .doomkey = '3' } },
+	{ .bin_idx = bin_idx_from_freq(14000), .key = { .doomkey = '4' } },
+	{ .bin_idx = bin_idx_from_freq(15000), .key = { .doomkey = '5' } },
+	{ .bin_idx = bin_idx_from_freq(16000), .key = { .doomkey = '6' } }
+};
+
+#define N_KEYS sizeof(keys) / sizeof(struct keymap)
+
+struct key_event_queue {
+	size_t read_idx;
+	size_t write_idx;
+	struct key events[N_KEYS];
+} key_events = {
+	.read_idx = 1,
+	.write_idx = 0,
+};
+
+struct timespec ts_init;
+struct timespec ts_prev_frame;
+PaStream *output_stream;
+PaStream *input_stream;
+
+extern void rdft(int, int, double *);
 
 void DG_Init(void)
 {
@@ -74,9 +121,18 @@ void DG_Init(void)
 	output_params.suggestedLatency = Pa_GetDeviceInfo(output_params.device)->defaultLowOutputLatency;
 	output_params.hostApiSpecificStreamInfo = NULL;
 
-	call_pa(Pa_OpenStream(&stream, NULL, &output_params, SAMPLE_RATE, SAMPLE_RATE, paClipOff, NULL, NULL));
+	PaStreamParameters input_params;
+	input_params.device = Pa_GetDefaultInputDevice();
+	error_check(output_params.device != paNoDevice, "Error: No default input device.\n");
+	input_params.channelCount = 1;
+	input_params.sampleFormat = paInt16;
+	input_params.suggestedLatency = Pa_GetDeviceInfo(input_params.device)->defaultLowInputLatency;
+	input_params.hostApiSpecificStreamInfo = NULL;
 
-	call_pa(Pa_StartStream(stream));
+	call_pa(Pa_OpenStream(&output_stream, NULL, &output_params, OUTPUT_SAMPLE_RATE, OUTPUT_SAMPLE_RATE, paClipOff, NULL, NULL));
+	call_pa(Pa_OpenStream(&input_stream, &input_params, NULL, OUTPUT_SAMPLE_RATE, INPUT_FRAMES_PER_BUFFER, paClipOff, NULL, NULL));
+
+	call_pa(Pa_StartStream(output_stream));
 
 	clock_gettime(CLOCK_REALTIME, &ts_init);
 	clock_gettime(CLOCK_REALTIME, &ts_prev_frame);
@@ -84,17 +140,17 @@ void DG_Init(void)
 
 void DG_DrawFrame(void)
 {
-	float buffer[SAMPLE_RATE];
+	float buffer[OUTPUT_SAMPLE_RATE];
 	struct color_t *pixels = (struct color_t *)DG_ScreenBuffer;
 
 	/* Fill buffer */
 	unsigned i = 0;
 	unsigned x, y;
-	for (x = 0; x < SAMPLE_RATE; x++) {
+	for (x = 0; x < OUTPUT_SAMPLE_RATE; x++) {
 		float sample = 0;
 		for (y = 0; y < DOOMGENERIC_RESY; y++) {
-			struct color_t pixel = pixels[y * DOOMGENERIC_RESX + (x * DOOMGENERIC_RESX / SAMPLE_RATE)];
-			sample += (pixel.b + pixel.g + pixel.r) * sinf((DOOMGENERIC_RESY + 1 - y) * (20000.f / DOOMGENERIC_RESY) * PI * 2.f * x / SAMPLE_RATE);
+			struct color_t pixel = pixels[y * DOOMGENERIC_RESX + (x * DOOMGENERIC_RESX / OUTPUT_SAMPLE_RATE)];
+			sample += (pixel.b + pixel.g + pixel.r) * sinf((DOOMGENERIC_RESY + 1 - y) * (20000.f / DOOMGENERIC_RESY) * PI * 2.f * x / OUTPUT_SAMPLE_RATE);
 		}
 		buffer[i++] = sample / 153600.f;
 	}
@@ -107,7 +163,7 @@ void DG_DrawFrame(void)
 		DG_SleepMs(FRAMETIME_MS - elapsed_ms);
 
 	/* Play frame */
-	Pa_WriteStream(stream, buffer, SAMPLE_RATE);
+	Pa_WriteStream(output_stream, buffer, OUTPUT_SAMPLE_RATE);
 	clock_gettime(CLOCK_REALTIME, &ts_prev_frame);
 }
 
@@ -130,7 +186,40 @@ uint32_t DG_GetTicksMs(void)
 
 int DG_GetKey(int *pressed, unsigned char *doomKey)
 {
-	return 0;
+	if (key_events.read_idx > key_events.write_idx) {
+		key_events.read_idx = 0;
+		key_events.write_idx = 0;
+
+		int16_t input_buffer[INPUT_FRAMES_PER_BUFFER];
+		call_pa(Pa_StartStream(input_stream));
+		Pa_ReadStream(input_stream, input_buffer, INPUT_FRAMES_PER_BUFFER);
+		call_pa(Pa_StopStream(input_stream));
+
+		double buffer[INPUT_FRAMES_PER_BUFFER];
+		unsigned i;
+		for (i = 0; i < INPUT_FRAMES_PER_BUFFER; i++)
+			buffer[i] = input_buffer[i] / 32768.;
+
+		rdft(INPUT_FRAMES_PER_BUFFER, 1, buffer);
+
+		for (i = 0; i < N_KEYS; i++) {
+			if (fabs(buffer[keys[i].bin_idx]) > INPUT_MAGNITUDE_THRESH) {
+				keys[i].key.pressed = !keys[i].key.pressed;
+				key_events.events[key_events.write_idx++] = keys[i].key;
+			}
+		}
+	}
+
+	if (key_events.read_idx == key_events.write_idx) {
+		key_events.read_idx++;
+		return 0;
+	}
+
+	struct key event = key_events.events[key_events.read_idx++];
+	*pressed = event.pressed;
+	*doomKey = event.doomkey;
+
+	return 1;
 }
 
 void DG_SetWindowTitle(const char *title)
