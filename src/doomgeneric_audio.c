@@ -49,13 +49,14 @@
 		error_check(err == paNoError, "Error: Portaudio: %s\n", Pa_GetErrorText(err)); \
 	} while (0)
 
-#define bin_idx_from_freq(frequency) ((frequency)*INPUT_FRAMES_PER_BUFFER * 2 / INPUT_SAMPLE_RATE)
+#define bin_idx_from_freq(frequency) (round((frequency)*INPUT_FRAMES_PER_BUFFER * 2 / (double)INPUT_SAMPLE_RATE))
 
 #define OUTPUT_SAMPLE_RATE 44100
 #define INPUT_SAMPLE_RATE 44100
 #define INPUT_FRAMES_PER_BUFFER 128
 #define FRAMETIME_MS 1001
 #define INPUT_MAGNITUDE_THRESH 1.0
+#define N_KEYS 15
 
 #define PI 3.14159265
 
@@ -74,25 +75,7 @@ struct color_t {
 struct keymap {
 	size_t bin_idx;
 	struct key key;
-} keys[] = {
-	{ .bin_idx = bin_idx_from_freq(2000), .key = { .doomkey = KEY_RIGHTARROW } },
-	{ .bin_idx = bin_idx_from_freq(3000), .key = { .doomkey = KEY_LEFTARROW } },
-	{ .bin_idx = bin_idx_from_freq(4000), .key = { .doomkey = KEY_UPARROW } },
-	{ .bin_idx = bin_idx_from_freq(5000), .key = { .doomkey = KEY_DOWNARROW } },
-	{ .bin_idx = bin_idx_from_freq(6000), .key = { .doomkey = KEY_USE } },
-	{ .bin_idx = bin_idx_from_freq(7000), .key = { .doomkey = KEY_FIRE } },
-	{ .bin_idx = bin_idx_from_freq(8000), .key = { .doomkey = KEY_ESCAPE } },
-	{ .bin_idx = bin_idx_from_freq(9000), .key = { .doomkey = KEY_ENTER } },
-	{ .bin_idx = bin_idx_from_freq(10000), .key = { .doomkey = KEY_TAB } },
-	{ .bin_idx = bin_idx_from_freq(11000), .key = { .doomkey = '1' } },
-	{ .bin_idx = bin_idx_from_freq(12000), .key = { .doomkey = '2' } },
-	{ .bin_idx = bin_idx_from_freq(13000), .key = { .doomkey = '3' } },
-	{ .bin_idx = bin_idx_from_freq(14000), .key = { .doomkey = '4' } },
-	{ .bin_idx = bin_idx_from_freq(15000), .key = { .doomkey = '5' } },
-	{ .bin_idx = bin_idx_from_freq(16000), .key = { .doomkey = '6' } }
-};
-
-#define N_KEYS sizeof(keys) / sizeof(struct keymap)
+} keys[N_KEYS];
 
 struct key_event_queue {
 	size_t read_idx;
@@ -112,6 +95,22 @@ extern void rdft(int, int, double *);
 
 void DG_Init(void)
 {
+	keys[0] = (struct keymap){ .bin_idx = bin_idx_from_freq(2000), .key = { .doomkey = KEY_RIGHTARROW } };
+	keys[1] = (struct keymap){ .bin_idx = bin_idx_from_freq(3000), .key = { .doomkey = KEY_LEFTARROW } };
+	keys[2] = (struct keymap){ .bin_idx = bin_idx_from_freq(4000), .key = { .doomkey = KEY_UPARROW } };
+	keys[3] = (struct keymap){ .bin_idx = bin_idx_from_freq(5000), .key = { .doomkey = KEY_DOWNARROW } };
+	keys[4] = (struct keymap){ .bin_idx = bin_idx_from_freq(6000), .key = { .doomkey = KEY_USE } };
+	keys[5] = (struct keymap){ .bin_idx = bin_idx_from_freq(7000), .key = { .doomkey = KEY_FIRE } };
+	keys[6] = (struct keymap){ .bin_idx = bin_idx_from_freq(8000), .key = { .doomkey = KEY_ESCAPE } };
+	keys[7] = (struct keymap){ .bin_idx = bin_idx_from_freq(9000), .key = { .doomkey = KEY_ENTER } };
+	keys[8] = (struct keymap){ .bin_idx = bin_idx_from_freq(10000), .key = { .doomkey = KEY_TAB } };
+	keys[9] = (struct keymap){ .bin_idx = bin_idx_from_freq(11000), .key = { .doomkey = '1' } };
+	keys[10] = (struct keymap){ .bin_idx = bin_idx_from_freq(12000), .key = { .doomkey = '2' } };
+	keys[11] = (struct keymap){ .bin_idx = bin_idx_from_freq(13000), .key = { .doomkey = '3' } };
+	keys[12] = (struct keymap){ .bin_idx = bin_idx_from_freq(14000), .key = { .doomkey = '4' } };
+	keys[13] = (struct keymap){ .bin_idx = bin_idx_from_freq(15000), .key = { .doomkey = '5' } };
+	keys[14] = (struct keymap){ .bin_idx = bin_idx_from_freq(16000), .key = { .doomkey = '6' } };
+
 	call_pa(Pa_Initialize());
 
 	PaStreamParameters output_params;
@@ -195,7 +194,7 @@ int DG_GetKey(int *pressed, unsigned char *doomKey)
 		/* Get audio sample */
 		int16_t input_buffer[INPUT_FRAMES_PER_BUFFER];
 		call_pa(Pa_StartStream(input_stream));
-		Pa_ReadStream(input_stream, input_buffer, INPUT_FRAMES_PER_BUFFER);
+		call_pa(Pa_ReadStream(input_stream, input_buffer, INPUT_FRAMES_PER_BUFFER));
 		call_pa(Pa_StopStream(input_stream));
 
 		/* Convert to double */
