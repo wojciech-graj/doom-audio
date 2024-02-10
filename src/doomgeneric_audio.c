@@ -15,8 +15,8 @@
 //     Nil
 //
 
-#include "doomkeys.h"
 #include "doomgeneric.h"
+#include "doomkeys.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -47,11 +47,12 @@
 		error_check(err == paNoError, "Error: Portaudio: %s\n", Pa_GetErrorText(err)); \
 	} while (0)
 
-#define SAMPLE_RATE 96000
-
+#define SAMPLE_RATE 44100
+#define FRAMETIME_MS 1001
 #define PI 3.14159265
 
 struct timespec ts_init;
+struct timespec ts_prev_frame;
 PaStream *stream;
 
 struct color_t {
@@ -78,6 +79,7 @@ void DG_Init(void)
 	call_pa(Pa_StartStream(stream));
 
 	clock_gettime(CLOCK_REALTIME, &ts_init);
+	clock_gettime(CLOCK_REALTIME, &ts_prev_frame);
 }
 
 void DG_DrawFrame(void)
@@ -85,21 +87,31 @@ void DG_DrawFrame(void)
 	float buffer[SAMPLE_RATE];
 	struct color_t *pixels = (struct color_t *)DG_ScreenBuffer;
 
+	/* Fill buffer */
 	unsigned i = 0;
 	unsigned x, y;
 	for (x = 0; x < SAMPLE_RATE; x++) {
-		float rez = 0;
+		float sample = 0;
 		for (y = 0; y < DOOMGENERIC_RESY; y++) {
 			struct color_t pixel = pixels[y * DOOMGENERIC_RESX + (x * DOOMGENERIC_RESX / SAMPLE_RATE)];
-			rez += (pixel.b + pixel.g + pixel.r) * sinf((DOOMGENERIC_RESY + 1 - y) * (20000.f / DOOMGENERIC_RESY) * PI * 2.f * x / SAMPLE_RATE);
+			sample += (pixel.b + pixel.g + pixel.r) * sinf((DOOMGENERIC_RESY + 1 - y) * (20000.f / DOOMGENERIC_RESY) * PI * 2.f * x / SAMPLE_RATE);
 		}
-		buffer[i++] = rez / 153600.f;
+		buffer[i++] = sample / 153600.f;
 	}
 
+	/* Wait for last frame to finish playing */
+	struct timespec ts_now;
+	clock_gettime(CLOCK_REALTIME, &ts_now);
+	uint32_t elapsed_ms = (ts_now.tv_sec - ts_prev_frame.tv_sec) * 1000 + (ts_now.tv_nsec - ts_prev_frame.tv_nsec) / 1000000;
+	if (elapsed_ms < FRAMETIME_MS)
+		DG_SleepMs(FRAMETIME_MS - elapsed_ms);
+
+	/* Play frame */
 	Pa_WriteStream(stream, buffer, SAMPLE_RATE);
+	clock_gettime(CLOCK_REALTIME, &ts_prev_frame);
 }
 
-void DG_SleepMs(uint32_t ms)
+void DG_SleepMs(const uint32_t ms)
 {
 	struct timespec ts = (struct timespec){
 		.tv_sec = ms / 1000,
