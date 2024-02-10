@@ -49,14 +49,15 @@
 		error_check(err == paNoError, "Error: Portaudio: %s\n", Pa_GetErrorText(err)); \
 	} while (0)
 
-#define bin_idx_from_freq(frequency) ((frequency) * INPUT_FRAMES_PER_BUFFER * 2 / INPUT_SAMPLE_RATE)
+#define bin_idx_from_freq(frequency) ((frequency)*INPUT_FRAMES_PER_BUFFER * 2 / INPUT_SAMPLE_RATE)
 
 #define OUTPUT_SAMPLE_RATE 44100
 #define INPUT_SAMPLE_RATE 44100
 #define INPUT_FRAMES_PER_BUFFER 128
 #define FRAMETIME_MS 1001
-#define PI 3.14159265
 #define INPUT_MAGNITUDE_THRESH 1.0
+
+#define PI 3.14159265
 
 struct key {
 	uint8_t doomkey;
@@ -186,24 +187,29 @@ uint32_t DG_GetTicksMs(void)
 
 int DG_GetKey(int *pressed, unsigned char *doomKey)
 {
+	/* Read input if hasn't been read this frame */
 	if (key_events.read_idx > key_events.write_idx) {
 		key_events.read_idx = 0;
 		key_events.write_idx = 0;
 
+		/* Get audio sample */
 		int16_t input_buffer[INPUT_FRAMES_PER_BUFFER];
 		call_pa(Pa_StartStream(input_stream));
 		Pa_ReadStream(input_stream, input_buffer, INPUT_FRAMES_PER_BUFFER);
 		call_pa(Pa_StopStream(input_stream));
 
+		/* Convert to double */
 		double buffer[INPUT_FRAMES_PER_BUFFER];
 		unsigned i;
 		for (i = 0; i < INPUT_FRAMES_PER_BUFFER; i++)
 			buffer[i] = input_buffer[i] / 32768.;
 
+		/* Perform fourier transform */
 		rdft(INPUT_FRAMES_PER_BUFFER, 1, buffer);
 
+		/* Generate key events */
 		for (i = 0; i < N_KEYS; i++) {
-			if (fabs(buffer[keys[i].bin_idx]) > INPUT_MAGNITUDE_THRESH) {
+			if ((fabs(buffer[keys[i].bin_idx]) > INPUT_MAGNITUDE_THRESH) != keys[i].key.pressed) {
 				keys[i].key.pressed = !keys[i].key.pressed;
 				key_events.events[key_events.write_idx++] = keys[i].key;
 			}
@@ -218,7 +224,6 @@ int DG_GetKey(int *pressed, unsigned char *doomKey)
 	struct key event = key_events.events[key_events.read_idx++];
 	*pressed = event.pressed;
 	*doomKey = event.doomkey;
-
 	return 1;
 }
 
