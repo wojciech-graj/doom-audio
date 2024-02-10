@@ -2,7 +2,7 @@
 
 **DOOM playable over an audio connection!**
 
-DOOM-audio outputs its video for viewing in a spectrometer, and takes audio input.
+DOOM-audio outputs its video for viewing as a spectrogram, and takes audio input.
 
 ![SCREENSHOT](screenshots/title.png)
 
@@ -35,7 +35,7 @@ Recording:
 - Resolution: 32 bits
 Sound preferences:
 - Buffer Size: 64 samples
-Spectrogram:
+Spectrogram preferences:
 - Number of Bins: 512
 - Window Size: 100%
 - Dyanmic Range: 130dB
