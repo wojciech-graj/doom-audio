@@ -2,7 +2,7 @@
 
 **DOOM playable over an audio connection!**
 
-DOOM-audio outputs its video for viewing as a spectrogram, and takes audio input.
+DOOM-audio outputs its video as audio for viewing as a spectrogram, and takes audio input. Check it out in action [here](https://www.youtube.com/watch?v=wv8YSr19vFY).
 
 ![SCREENSHOT](screenshots/title.png)
 
@@ -38,7 +38,7 @@ Sound preferences:
 Spectrogram preferences:
 - Number of Bins: 512
 - Window Size: 100%
-- Dyanmic Range: 130dB
+- Dynamic Range: 130dB
 - Normalize
 ```
 
